@@ -197,6 +197,11 @@ def _parse_path(p_names):
     XpathError: Unabled to parse the xpath provided.
   """
   gnmi_elems = []
+  gnmi_origin = None
+  if p_names and ":" in p_names[0]:
+    res = p_names[0].split(":", 1)
+    gnmi_origin = res[0]
+    p_names[0] = res[1]
   for word in p_names:
     word_search = _RE_PATH_COMPONENT.search(word)
     if not word_search:  # Invalid path specified.
@@ -209,7 +214,7 @@ def _parse_path(p_names):
           'pname'), key=tmp_key))
     else:
       gnmi_elems.append(gnmi_pb2.PathElem(name=word, key={}))
-  return gnmi_pb2.Path(elem=gnmi_elems)
+  return gnmi_pb2.Path(elem=gnmi_elems, origin=gnmi_origin)
 
 
 def _create_stub(creds, target, port, host_override):
