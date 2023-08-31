@@ -300,6 +300,13 @@ def _get_val(json_value):
       raise JsonReadError('Error while loading JSON: %s' % str(e))
     val.json_ietf_val = json.dumps(set_json).encode()
     return val
+  elif '$' in json_value:
+    try:
+      proto_bytes = six.moves.builtins.open(json_value.strip('$'), 'rb').read()
+    except (IOError, ValueError) as e:
+      raise Exception('Error while loading proto: %s' % str(e))
+    val.proto_bytes = proto_bytes
+    return val
   coerced_val = _format_type(json_value)
   type_to_value = {bool: 'bool_val', int: 'int_val', float: 'float_val',
                    str: 'string_val'}
