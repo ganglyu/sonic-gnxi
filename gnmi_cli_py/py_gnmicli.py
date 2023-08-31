@@ -183,7 +183,25 @@ def _path_names(xpath):
   """
   if not xpath or xpath == '/':  # A blank xpath was provided at CLI.
     return []
-  return xpath.strip().strip('/').split('/')  # Remove leading and trailing '/'.
+  xpath = xpath.strip().strip('/')
+  p_names = []
+  skip = False
+  curr = ''
+  # ignore / in []
+  for c in xpath:
+    if c == '[':
+      skip = True
+    elif c == ']':
+      skip = False
+    if c == '/' and skip == False:
+      p_names.append(curr)
+      curr = ''
+    else:
+      curr += c
+  if curr:
+    p_names.append(curr)
+
+  return p_names
 
 
 def _parse_path(p_names):
