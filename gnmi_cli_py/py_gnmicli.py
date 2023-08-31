@@ -553,9 +553,7 @@ def main():
         request_iterator = gen_request(paths, args, prefix)
         subscribe_start(stub, args, request_iterator)
     except grpc.RpcError as err:
-      if err.code() == grpc.StatusCode.UNAVAILABLE:
-        print("Client receives an exception '{}' indicating gNMI server is shut down and Exiting ..."
-              .format(err.details()))
+        print("GRPC error\n {}".format(err.details()))
         sys.exit(GNMI_SERVER_UNAVAILABLE)
 
 
