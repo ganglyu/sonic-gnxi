@@ -113,6 +113,8 @@ def _create_parser():
                       '\nCan be Leaf value or JSON file. If JSON file, prepend'
                       ' with "@"; eg "@interfaces.json".',
                       required=False)
+  parser.add_argument('--proto', type=str, help='Output files for proto bytes',
+                      nargs="+", required=False)
   parser.add_argument('-pkey', '--private_key', type=str, help='Fully'
                       'quallified path to Private key to use when establishing'
                       'a gNMI Channel to the Target', required=False)
@@ -156,7 +158,7 @@ def _create_parser():
                       help='subscription mode [0=TARGET_DEFINED, 1=ON_CHANGE, 2=SAMPLE]')
   parser.add_argument('--update_count', default=0, type=int, help='Max number of streaming updates to receive. 0 means no limit.')
   parser.add_argument('--subscribe_mode', default=0, type=int, help='[0=STREAM, 1=ONCE, 2=POLL]')
-  parser.add_argument('--encoding', default=0, type=int, help='[0=JSON, 1=BYTES, 2=PROTO, 3=ASCII, 4=JSON_IETF]')
+  parser.add_argument('--encoding', default=4, type=int, help='[0=JSON, 1=BYTES, 2=PROTO, 3=ASCII, 4=JSON_IETF]')
   parser.add_argument('--qos', default=0, type=int, help='')
   parser.add_argument('--use_alias', action='store_true', help='use alias')
   parser.add_argument('--create_connections', type=int, nargs='?', const=1, default=1,
@@ -288,7 +290,7 @@ def _get_val(json_value):
   return val
 
 
-def _get(stub, paths, username, password, prefix):
+def _get(stub, paths, username, password, prefix, encoding):
   """Create a gNMI GetRequest.
 
   Args:
@@ -297,7 +299,7 @@ def _get(stub, paths, username, password, prefix):
     username: (str) Username used when building the channel.
     password: (str) Password used when building the channel.
     prefix: gNMI Path
-
+    encoding: (str) Encoding
   Returns:
     a gnmi_pb2.GetResponse object representing a gNMI GetResponse.
   """
@@ -305,7 +307,7 @@ def _get(stub, paths, username, password, prefix):
   if username:  # User/pass supplied for Authentication.
     kwargs = {'metadata': [('username', username), ('password', password)]}
   return stub.Get(
-      gnmi_pb2.GetRequest(prefix=prefix, path=[paths], encoding='JSON_IETF'),
+      gnmi_pb2.GetRequest(prefix=prefix, path=[paths], encoding=encoding),
                   **kwargs)
 
 def _set(stub, paths, set_type, username, password, json_value):
@@ -470,6 +472,13 @@ def subscribe_start(stub, options, req_iterator):
   except Exception as err:
       print(err)
 
+encoding_dic = {
+  0: 'JSON',
+  1: 'BYTES',
+  2: 'PROTO',
+  3: 'ASCII',
+  4: 'JSON_IETF'
+}
 
 def main():
   argparser = _create_parser()
@@ -490,12 +499,14 @@ def main():
   json_value = args['value']
   private_key = args['private_key']
   xpath = args['xpath']
+  proto_list = args['proto']
   prefix = gnmi_pb2.Path(target=args['xpath_target'])
   host_override = args['host_override']
   user = args['username']
   password = args['password']
   form = args['format']
   create_connections = args['create_connections']
+  encoding = encoding_dic.get(args['encoding'], 'JSON_IETF')
   paths = _parse_path(_path_names(xpath))
   kwargs = {'root_cert': root_cert, 'cert_chain': cert_chain,
             'private_key': private_key}
@@ -520,11 +531,18 @@ def main():
     try:
       stub = _create_stub(creds, target, port, host_override)
       if mode == 'get':
-        print('Performing GetRequest, encoding=JSON_IETF', 'to', target,
+        print('Performing GetRequest, encoding='+encoding, 'to', target,
               ' with the following gNMI Path\n', '-'*25, '\n', paths)
-        response = _get(stub, paths, user, password, prefix)
+        response = _get(stub, paths, user, password, prefix, encoding)
         print('The GetResponse is below\n' + '-'*25 + '\n')
-        if form == 'protobuff':
+        if encoding == 'PROTO':
+          i = 0
+          for notification in response.notification:
+            for update in notification.update:
+              with open(proto_list[i], 'wb') as fp:
+                fp.write(update.val.proto_bytes)
+              i += 1
+        elif form == 'protobuff':
           print(response)
         elif response.notification[0].update[0].val.json_ietf_val:
           print(json.dumps(json.loads(response.notification[0].update[0].val.
