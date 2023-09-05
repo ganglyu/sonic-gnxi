@@ -111,14 +111,11 @@ def _create_parser():
                       'file (prepend filename with "@")', default='get')
   parser.add_argument('-val', '--value', type=str, help='Value for SetRequest.'
                       '\nCan be Leaf value or JSON file. If JSON file, prepend'
-                      ' with "@"; eg "@interfaces.json".',
-                      required=False)
-  parser.add_argument('--value_list', type=str, help='Value for SetRequest.'
-                      '\nCan be Leaf value or JSON file. If JSON file, prepend'
-                      ' with "@"; eg "@interfaces.json".',
+                      ' with "@"; eg "@interfaces.json".'
+                      '\n If empty value for delete operation, use delete#".',
                       nargs="+", required=False)
   parser.add_argument('--proto', type=str, help='Output files for proto bytes',
-                      nargs="+", required=False)
+                      nargs="*", required=False)
   parser.add_argument('-pkey', '--private_key', type=str, help='Fully'
                       'quallified path to Private key to use when establishing'
                       'a gNMI Channel to the Target', required=False)
@@ -164,7 +161,7 @@ def _create_parser():
                       help='subscription mode [0=TARGET_DEFINED, 1=ON_CHANGE, 2=SAMPLE]')
   parser.add_argument('--update_count', default=0, type=int, help='Max number of streaming updates to receive. 0 means no limit.')
   parser.add_argument('--subscribe_mode', default=0, type=int, help='[0=STREAM, 1=ONCE, 2=POLL]')
-  parser.add_argument('--encoding', default=4, type=int, help='[0=JSON, 1=BYTES, 2=PROTO, 3=ASCII, 4=JSON_IETF]')
+  parser.add_argument('--encoding', default=0, type=int, help='[0=JSON, 1=BYTES, 2=PROTO, 3=ASCII, 4=JSON_IETF]')
   parser.add_argument('--qos', default=0, type=int, help='')
   parser.add_argument('--use_alias', action='store_true', help='use alias')
   parser.add_argument('--create_connections', type=int, nargs='?', const=1, default=1,
@@ -190,24 +187,52 @@ def _path_names(xpath):
   if not xpath or xpath == '/':  # A blank xpath was provided at CLI.
     return []
   xpath = xpath.strip().strip('/')
-  p_names = []
-  skip = False
-  curr = ''
-  # ignore / in []
-  for c in xpath:
-    if c == '[':
-      skip = True
-    elif c == ']':
-      skip = False
-    if c == '/' and skip == False:
-      p_names.append(curr)
-      curr = ''
-    else:
-      curr += c
-  if curr:
-    p_names.append(curr)
+  path = []
+  xpath = xpath + '/'
+  # insideBrackets is true when at least one '[' has been found and no
+  # ']' has been found. It is false when a closing ']' has been found.
+  insideBrackets = False
+  # begin marks the beginning of a path element, which is separated by
+  # '/' unclosed between '[' and ']'.
+  begin = 0
+  # end marks the end of a path element, which is separated by '/'
+  # unclosed between '[' and ']'.
+  end = 0
 
-  return p_names
+  # Split the given string using unescaped '/'.
+  while end < len(xpath):
+    if xpath[end] == '/':
+      if not insideBrackets:
+			  # Current '/' is a valid path element
+			  # separator.
+        if end > begin:
+          path.append(xpath[begin:end])
+        end += 1
+        begin = end
+      else:
+        # Current '/' must be part of a List key value
+        # string.
+        end += 1
+    elif xpath[end] == '[':
+      if (end == 0 or xpath[end-1] != '\\') and not insideBrackets:
+        # Current '[' is unescacped, and is the
+        # beginning of List key-value pair(s) string.
+        insideBrackets = True
+      end += 1
+    elif xpath[end] == ']':
+      if (end == 0 or xpath[end-1] != '\\') and insideBrackets:
+        # Current ']' is unescacped, and is the end of
+        # List key-value pair(s) string.
+        insideBrackets = False
+      end += 1
+    else:
+      end += 1
+
+  if insideBrackets:
+    print("missing ] in path string: %s" % xpath)
+    return []
+
+  return path
 
 
 def _parse_path(p_names):
@@ -310,10 +335,12 @@ def _get_val(json_value):
     try:
       proto_bytes = six.moves.builtins.open(json_value.strip('$'), 'rb').read()
     except (IOError, ValueError) as e:
-      raise Exception('Error while loading proto: %s' % str(e))
+      raise ValueError('Error while loading %s: %s' % (json_value.strip('$'), str(e)))
     val.proto_bytes = proto_bytes
     return val
   elif '#' in json_value:
+    # Use '#' to indicate empty value
+    # GNMI client should use delete operation
     return None
   coerced_val = _format_type(json_value)
   type_to_value = {bool: 'bool_val', int: 'int_val', float: 'float_val',
@@ -507,13 +534,6 @@ def subscribe_start(stub, options, req_iterator):
   except Exception as err:
       print(err)
 
-encoding_dic = {
-  0: 'JSON',
-  1: 'BYTES',
-  2: 'PROTO',
-  3: 'ASCII',
-  4: 'JSON_IETF'
-}
 
 def main():
   argparser = _create_parser()
@@ -531,8 +551,7 @@ def main():
   get_cert = args['get_cert']
   root_cert = args['root_cert']
   cert_chain = args['cert_chain']
-  json_value = args['value']
-  value_list = args['value_list']
+  value_list = args['value']
   private_key = args['private_key']
   xpath = args['xpath']
   xpath_list = args['xpath_list']
@@ -543,7 +562,7 @@ def main():
   password = args['password']
   form = args['format']
   create_connections = args['create_connections']
-  encoding = encoding_dic.get(args['encoding'], 'JSON_IETF')
+  encoding = args['encoding']
   paths = []
   if xpath:
     paths.append(_parse_path(_path_names(xpath)))
@@ -573,14 +592,17 @@ def main():
     try:
       stub = _create_stub(creds, target, port, host_override)
       if mode == 'get':
-        print('Performing GetRequest, encoding='+encoding, 'to', target,
+        print('Performing GetRequest, encoding=JSON_IETF', 'to', target,
               ' with the following gNMI Path\n', '-'*25, '\n', paths)
         response = _get(stub, paths, user, password, prefix, encoding)
         print('The GetResponse is below\n' + '-'*25 + '\n')
-        if encoding == 'PROTO':
+        if encoding == 2:
           i = 0
           for notification in response.notification:
             for update in notification.update:
+              if i >= len(proto_list):
+                print("Not enough files: %s" % str(proto_list))
+                sys.exit(1)
               with open(proto_list[i], 'wb') as fp:
                 fp.write(update.val.proto_bytes)
               i += 1
@@ -615,8 +637,13 @@ def main():
         request_iterator = gen_request(paths, args, prefix)
         subscribe_start(stub, args, request_iterator)
     except grpc.RpcError as err:
-        print("GRPC error\n {}".format(err.details()))
+      if err.code() == grpc.StatusCode.UNAVAILABLE:
+        print("Client receives an exception '{}' indicating gNMI server is shut down and Exiting ..."
+              .format(err.details()))
         sys.exit(GNMI_SERVER_UNAVAILABLE)
+      else:
+        print("GRPC error\n {}".format(err.details()))
+        sys.exit(1)
 
 
 if __name__ == '__main__':
