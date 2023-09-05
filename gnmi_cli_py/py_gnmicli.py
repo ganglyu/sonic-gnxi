@@ -130,9 +130,7 @@ def _create_parser():
                       'Target when establishing secure gRPC channel.',
                       required=False, action='store_true')
   parser.add_argument('-x', '--xpath', type=str, help='The gNMI path utilized'
-                      'in the GetRequest or Subscirbe')
-  parser.add_argument('--xpath_list', type=str, help='The gNMI path utilized'
-                      'in the GetRequest or Subscirbe', nargs="+")
+                      'in the GetRequest or Subscirbe', nargs="+", required=True)
   parser.add_argument('-xt', '--xpath_target', type=str, help='The gNMI prefix'
                       'target in the GetRequest or Subscirbe', default=None,
                       required=False)
@@ -553,8 +551,7 @@ def main():
   cert_chain = args['cert_chain']
   value_list = args['value']
   private_key = args['private_key']
-  xpath = args['xpath']
-  xpath_list = args['xpath_list']
+  xpath_list = args['xpath']
   proto_list = args['proto']
   prefix = gnmi_pb2.Path(target=args['xpath_target'])
   host_override = args['host_override']
@@ -564,8 +561,6 @@ def main():
   create_connections = args['create_connections']
   encoding = args['encoding']
   paths = []
-  if xpath:
-    paths.append(_parse_path(_path_names(xpath)))
   if xpath_list:
     for xpath in xpath_list:
       paths.append(_parse_path(_path_names(xpath)))
