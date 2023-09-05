@@ -359,7 +359,7 @@ def _get(stub, paths, username, password, prefix, encoding):
     username: (str) Username used when building the channel.
     password: (str) Password used when building the channel.
     prefix: gNMI Path
-    encoding: (str) Encoding
+    encoding: (int) Encoding
   Returns:
     a gnmi_pb2.GetResponse object representing a gNMI GetResponse.
   """
