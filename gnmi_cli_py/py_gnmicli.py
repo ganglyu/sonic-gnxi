@@ -112,7 +112,7 @@ def _create_parser():
   parser.add_argument('-val', '--value', type=str, help='Value for SetRequest.'
                       '\nCan be Leaf value or JSON file. If JSON file, prepend'
                       ' with "@"; eg "@interfaces.json".'
-                      '\n If empty value for delete operation, use delete#".',
+                      '\n If empty value for delete operation, use "".',
                       nargs="+", required=False)
   parser.add_argument('--proto', type=str, help='Output files for proto bytes',
                       nargs="*", required=False)
@@ -133,6 +133,9 @@ def _create_parser():
                       'in the GetRequest or Subscirbe', nargs="+", required=True)
   parser.add_argument('-xt', '--xpath_target', type=str, help='The gNMI prefix'
                       'target in the GetRequest or Subscirbe', default=None,
+                      required=False)
+  parser.add_argument('-xo', '--xpath_origin', type=str, help='The gNMI prefix origin'
+                      'origin in the GetRequest, SetRequest or Subscirbe', default=None,
                       required=False)
   parser.add_argument('-o', '--host_override', type=str, help='Use this as '
                       'Targets hostname/peername when checking it\'s'
@@ -246,11 +249,6 @@ def _parse_path(p_names):
     XpathError: Unabled to parse the xpath provided.
   """
   gnmi_elems = []
-  gnmi_origin = None
-  if p_names and ":" in p_names[0]:
-    res = p_names[0].split(":", 1)
-    gnmi_origin = res[0]
-    p_names[0] = res[1]
   for word in p_names:
     word_search = _RE_PATH_COMPONENT.search(word)
     if not word_search:  # Invalid path specified.
@@ -263,7 +261,7 @@ def _parse_path(p_names):
           'pname'), key=tmp_key))
     else:
       gnmi_elems.append(gnmi_pb2.PathElem(name=word, key={}))
-  return gnmi_pb2.Path(elem=gnmi_elems, origin=gnmi_origin)
+  return gnmi_pb2.Path(elem=gnmi_elems)
 
 
 def _create_stub(creds, target, port, host_override):
@@ -336,9 +334,8 @@ def _get_val(json_value):
       raise ValueError('Error while loading %s: %s' % (json_value.strip('$'), str(e)))
     val.proto_bytes = proto_bytes
     return val
-  elif '#' in json_value:
-    # Use '#' to indicate empty value
-    # GNMI client should use delete operation
+  elif json_value == '':
+    # GNMI client should use delete operation for empty string
     return None
   coerced_val = _format_type(json_value)
   type_to_value = {bool: 'bool_val', int: 'int_val', float: 'float_val',
@@ -368,7 +365,7 @@ def _get(stub, paths, username, password, prefix, encoding):
       gnmi_pb2.GetRequest(prefix=prefix, path=paths, encoding=encoding),
                   **kwargs)
 
-def _set(stub, paths, set_type, username, password, value_list):
+def _set(stub, prefix, paths, set_type, username, password, value_list):
   """Create a gNMI SetRequest.
 
   Args:
@@ -394,7 +391,7 @@ def _set(stub, paths, set_type, username, password, value_list):
   kwargs = {}
   if username:
     kwargs = {'metadata': [('username', username), ('password', password)]}
-  return stub.Set(gnmi_pb2.SetRequest(delete=delete_list, update=update_list), **kwargs)
+  return stub.Set(gnmi_pb2.SetRequest(prefix=prefix, delete=delete_list, update=update_list), **kwargs)
 
 
 def _build_creds(target, port, get_cert, certs, notls):
@@ -553,7 +550,8 @@ def main():
   private_key = args['private_key']
   xpath_list = args['xpath']
   proto_list = args['proto']
-  prefix = gnmi_pb2.Path(target=args['xpath_target'])
+  # In the case that a prefix is specified, it MUST specify any required origin
+  prefix = gnmi_pb2.Path(origin=args['xpath_origin'], target=args['xpath_target'])
   host_override = args['host_override']
   user = args['username']
   password = args['password']
@@ -616,17 +614,17 @@ def main():
       elif mode == 'set-update':
         print('Performing SetRequest Update, encoding=JSON_IETF', ' to ', target,
               ' with the following gNMI Path\n', '-'*25, '\n', paths, value_list)
-        response = _set(stub, paths, 'update', user, password, value_list)
+        response = _set(stub, prefix, paths, 'update', user, password, value_list)
         print('The SetRequest response is below\n' + '-'*25 + '\n', response)
       elif mode == 'set-replace':
         print('Performing SetRequest Replace, encoding=JSON_IETF', ' to ', target,
               ' with the following gNMI Path\n', '-'*25, '\n', paths)
-        response = _set(stub, paths, 'replace', user, password, value_list)
+        response = _set(stub, prefix, paths, 'replace', user, password, value_list)
         print('The SetRequest response is below\n' + '-'*25 + '\n', response)
       elif mode == 'set-delete':
         print('Performing SetRequest Delete, encoding=JSON_IETF', ' to ', target,
               ' with the following gNMI Path\n', '-'*25, '\n', paths)
-        response = _set(stub, paths, 'delete', user, password, value_list)
+        response = _set(stub, prefix, paths, 'delete', user, password, value_list)
         print('The SetRequest response is below\n' + '-'*25 + '\n', response)
       elif mode == 'subscribe':
         request_iterator = gen_request(paths, args, prefix)
