@@ -134,7 +134,7 @@ def _create_parser():
   parser.add_argument('-xt', '--xpath_target', type=str, help='The gNMI prefix'
                       'target in the GetRequest or Subscirbe', default=None,
                       required=False)
-  parser.add_argument('-xo', '--xpath_origin', type=str, help='The gNMI prefix origin'
+  parser.add_argument('-xo', '--xpath_origin', type=str, help='The gNMI prefix'
                       'origin in the GetRequest, SetRequest or Subscirbe', default=None,
                       required=False)
   parser.add_argument('-o', '--host_override', type=str, help='Use this as '
@@ -204,8 +204,8 @@ def _path_names(xpath):
   while end < len(xpath):
     if xpath[end] == '/':
       if not insideBrackets:
-			  # Current '/' is a valid path element
-			  # separator.
+        # Current '/' is a valid path element
+        # separator.
         if end > begin:
           path.append(xpath[begin:end])
         end += 1
